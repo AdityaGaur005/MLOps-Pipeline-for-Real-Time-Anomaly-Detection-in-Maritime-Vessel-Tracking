@@ -41,3 +41,31 @@ np.save(r"C:\Users\Aditya Gaur\Downloads\.vscode\maritime\norm_std.npy", std)
 
 print(f"\nNormalized training shape: {X_train_norm.shape}")
 print("Normalization complete.")
+
+""""
+output:
+Loading training sequences...
+Shape: (3641367, 30, 7)
+Dtype: float32
+
+Feature means:
+  lat                           : 4.9146
+  lon                           : -39.3164
+  speed_over_ground_knots       : 2.4563
+  course_over_ground_deg        : 78.6329
+  computed_speed_knots          : 2.4134
+  acceleration_knots_per_sec    : -0.0000
+  heading_change_deg            : 15.9873
+
+Feature stds:
+  lat                           : 8.8675
+  lon                           : 50.1623
+  speed_over_ground_knots       : 3.8586
+  course_over_ground_deg        : 129.4564
+  computed_speed_knots          : 3.7657
+  acceleration_knots_per_sec    : 0.0126
+  heading_change_deg            : 35.6210
+
+Normalized training shape: (3641367, 30, 7)
+Normalization complete.
+"""
