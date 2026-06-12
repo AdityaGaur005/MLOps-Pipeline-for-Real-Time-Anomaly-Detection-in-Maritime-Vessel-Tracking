@@ -4,10 +4,10 @@ from tqdm import tqdm
 import os
 
 years = {
-    '2017': "C:\\Users\\Aditya Gaur\\Downloads\\.vscode\\maritime\\hawaii_2017.parquet",
-    '2018': "C:\\Users\\Aditya Gaur\\Downloads\\.vscode\\maritime\\hawaii_2018.parquet",
-    '2019': "C:\\Users\\Aditya Gaur\\Downloads\\.vscode\\maritime\\hawaii_2019.parquet",
-    '2020': "C:\\Users\\Aditya Gaur\\Downloads\\.vscode\\maritime\\hawaii_2020.parquet"
+    '2017': "file patht.parquet",
+    '2018': "file path.parquet",
+    '2019': "file path.parquet",
+    '2020': "file path.parquet"
 }
 
 
@@ -87,3 +87,59 @@ print(f"\nTotal training sequences: {X_train_full.shape[0]:,} (shape: {X_train_f
 # Save combined training set
 np.save("X_train_full.npy", X_train_full)
 print("Saved combined training set to X_train_full.npy")
+
+
+
+"""
+output:
+rint("Loading training sequences...")
+train_seqs = []
+for year in ['2017', '2018', '2019']:
+    fname = f"normal_sequences_{year}.npy"
+    data = np.load(fname)
+    print(f"{year}: {data.shape[0]:,} sequences")
+    train_seqs.append(data)
+
+X_train_full = np.concatenate(train_seqs, axis=0)
+print(f"\nTotal training sequences: {X_train_full.shape[0]:,} (shape: {X_train_full.shape[1]} x {X_train_full.shape[2]})")
+
+# Save combined training set
+np.save("X_train_full.npy", X_train_full)
+print("Saved combined training set to X_train_full.npy")
+
+
+Loading 2017 data from C:\Users\hawaii_2017.parquet...
+Loaded 22,215,608 rows, 1,135 vessels
+Creating normal sequences for 2017...
+Processing vessels: 100%|█████████████████████████████████████████████████████████████| 1135/1135 [00:14<00:00, 76.83it/s]
+Created 1,213,571 sequences
+Saved to normal_sequences_2017.npy
+
+Loading 2018 data from C:\Users\hawaii_2018.parquet...
+Loaded 21,333,680 rows, 1,194 vessels
+Creating normal sequences for 2018...
+Processing vessels: 100%|████████████████████████████████████████████████████████████| 1194/1194 [00:11<00:00, 108.13it/s]
+Created 1,202,965 sequences
+Saved to normal_sequences_2018.npy
+
+Loading 2019 data from C:\Users\hawaii_2019.parquet...
+Loaded 22,670,306 rows, 1,145 vessels
+Creating normal sequences for 2019...
+Processing vessels: 100%|█████████████████████████████████████████████████████████████| 1145/1145 [00:11<00:00, 96.77it/s]
+Created 1,224,831 sequences
+Saved to normal_sequences_2019.npy
+
+Loading 2020 data from C:\Users\hawaii_2020.parquet...
+Loaded 22,476,746 rows, 1,000 vessels
+Creating normal sequences for 2020...
+Processing vessels: 100%|█████████████████████████████████████████████████████████████| 1000/1000 [00:12<00:00, 79.37it/s]
+Created 1,253,579 sequences
+Saved to normal_sequences_2020.npy
+Loading training sequences...
+2017: 1,213,571 sequences
+2018: 1,202,965 sequences
+2019: 1,224,831 sequences
+
+Total training sequences: 3,641,367 (shape: 30 x 7)
+Saved combined training set to X_train_full.npy
+"""
