@@ -1,6 +1,10 @@
 # Large data files
 *.parquet
+# Ignore all numpy files
 *.npy
+# But keep these
+!norm_mean.npy
+!norm_std.npy
 *.csv
 
 # Python cache
