@@ -1,0 +1,14 @@
+{
+  "seq_len": 30,
+  "n_features": 7,
+  "hidden_dim": 128,
+  "latent_dim": 64,
+  "num_layers": 2,
+  "dropout": 0.2,
+  "batch_size": 512,
+  "lr": 0.001,
+  "weight_decay": 1e-05,
+  "epochs": 50,
+  "patience": 7,
+  "grad_clip": 1.0
+}
