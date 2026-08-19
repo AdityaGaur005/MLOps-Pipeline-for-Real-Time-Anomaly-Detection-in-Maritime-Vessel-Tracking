@@ -1,170 +1,126 @@
-<div align="center">
-
 # 🚢 Maritime Anomaly Detection System
 
-**Detecting suspicious vessel behavior in Hawaii's coastal waters using deep learning, tree-based models, and a supervised hybrid pipeline — trained on 88.7M real AIS records with ground-truth incident labels.**
+Detecting anomalous vessel behavior in Hawaiian coastal waters using AIS data — comparing unsupervised deep learning, classical outlier detection, and a supervised hybrid model, backed by a systematic diagnostic that traces the model performance ceiling to its actual root cause rather than assuming it away.
 
-![Python](https://img.shields.io/badge/Python-3.8%2B-blue?logo=python&logoColor=white)
-![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-EE4C2C?logo=pytorch&logoColor=white)
-![XGBoost](https://img.shields.io/badge/XGBoost-1.5%2B-brightgreen)
-![License](https://img.shields.io/badge/License-Research%2FEducational-lightgrey)
-![Status](https://img.shields.io/badge/Status-Active%20Development-success)
-
-</div>
+[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-orange.svg)](https://pytorch.org/)
+[![XGBoost](https://img.shields.io/badge/XGBoost-1.5+-green.svg)](https://xgboost.readthedocs.io/)
+[![License](https://img.shields.io/badge/License-Research-lightgrey.svg)](#license)
 
 ---
 
-## 📋 Table of Contents
+## Table of Contents
 
-- [Overview](#-overview)
-- [The Problem](#-the-problem)
-- [Dataset](#-dataset)
-- [Pipeline](#-pipeline)
-- [Feature Engineering](#-feature-engineering)
-- [Models](#-models)
-- [Results](#-results)
-- [Key Findings](#-key-findings)
-- [Repository Structure](#-repository-structure)
-- [Installation](#-installation)
-- [Roadmap](#-roadmap)
-- [Known Limitations](#-known-limitations)
-- [References](#-references)
+- [Overview](#overview)
+- [Dataset](#dataset)
+- [Pipeline](#pipeline)
+- [Models](#models)
+- [Results](#results)
+- [Key Finding: The Feature Blind Spot](#key-finding-the-feature-blind-spot)
+- [XGBoost Hybrid Model](#xgboost-hybrid-model)
+- [Known Limitations](#known-limitations)
+- [Project Structure](#project-structure)
+- [Setup](#setup)
+- [Roadmap](#roadmap)
 
 ---
 
-## 🎯 Overview
+## Overview
 
-This project builds an end-to-end anomaly detection system for maritime traffic: it learns what "normal" vessel movement looks like from historical AIS (Automatic Identification System) data, then flags deviations that may indicate collisions, groundings, loss of power, illegal activity, or other incidents.
+Thousands of vessels move through Hawaiian waters every day. Manual monitoring doesn't scale, and rule-based flagging misses novel patterns. This project learns what "normal" vessel movement looks like from historical AIS (Automatic Identification System) data, then flags deviations — collisions, groundings, loss of propulsion, route deviations, and more — using both reconstruction-based anomaly detection and a supervised classifier.
 
-Four modeling approaches were built and rigorously compared — not just trained once and reported, but diagnosed per incident type, cross-validated, and stress-tested with a negative-result ablation. The strongest model is a **supervised XGBoost hybrid** that stacks reconstruction-error signals from two unsupervised deep models on top of engineered kinematic and vessel-relative features.
+Rather than stopping at "here's a model with X AUC," the project's core contribution is a **per-incident-type diagnostic** that identifies *why* every unsupervised model plateaus around 0.6–0.76 AUC, and a **feature-engineering response** that closes most of that gap.
 
-| | |
-|---|---|
-| **Data** | 88.7M AIS records · 2,622 vessels · 2017–2020 |
-| **Labeled incidents** | 208 tracks / 154 real-world events across 31 incident types |
-| **Best model** | XGBoost Hybrid — **AUC 0.856**, AP 0.188 (pooled grouped 5-fold CV) |
-| **Status** | Model development & diagnostics complete → MLOps pipeline pending |
+## Dataset
 
----
-
-## 🌊 The Problem
-
-Thousands of vessels move through Hawaii's waters daily. Manual monitoring doesn't scale, rule-based systems miss novel anomalies, and static models degrade as traffic patterns shift. Incident types of interest include:
-
-- 🎣 Illegal fishing in protected marine reserves
-- 💥 Collisions and groundings
-- ⚓ Loss of power / loss of steering / irregular tow
-- 🧭 Route deviation
-- 📡 AIS spoofing or dropout
-
-**Goal:** an automated system that learns normal shipping patterns, detects anomalies in near real-time, and can eventually retrain itself as patterns change.
-
----
-
-## 📊 Dataset
-
-**Source:** HawaiiCoast_GT — the first public AIS dataset with real-world labeled anomalies (NOAA Marine Cadastre raw AIS).
+**HawaiiCoast_GT** — the first publicly available AIS dataset with real-world labelled anomalies.
 
 | Property | Value |
 |---|---|
-| Time span | 2017 – 2020 (4 years, 48 monthly files) |
-| Records | ~88.7 million |
+| Time span | 2017 – 2020 |
+| Raw AIS records | ~88.7 million |
 | Unique vessels | 2,622 |
-| Labeled incident tracks | 208 (154 unique events) |
+| Labelled incident tracks | 208 (154 unique events, 31 incident categories) |
 | Incident rate | ~0.3% of rows — highly imbalanced |
-| Incident type count | 31 categories |
 
-<details>
-<summary><b>Top incident categories</b></summary>
+Incidents include collision, grounding, irregular tow, loss of propulsion, loss of steering, route deviation, container loss, flooding, sinking, fire, pollution, and material failure.
 
-| Incident Type | Count |
-|---|---|
-| Irregular tow | 76 |
-| Others (various) | 73 |
-| Loss of propulsion | 33 |
-| Loss of steering | 10 |
-| Route deviation | 8 |
-| Collision | 4 |
-| Grounding | 4 |
+## Pipeline
 
-Five categories alone — *Irregular tow, Loss/reduction of propulsion, Route deviation, Material failure, Loss of power* — account for **~67% of all positive windows**, and are also the hardest for kinematic-only models to detect (see [Key Findings](#-key-findings)).
-</details>
-
----
-
-## ⚙️ Pipeline
-
-```mermaid
-flowchart TD
-    A[Raw AIS CSVs<br/>48 monthly files] --> B[Clean & Impute<br/>median/mode fill, drop bad rows]
-    B --> C[Feature Engineering<br/>5 motion-derived features]
-    C --> D[Incident Labeling<br/>join ground-truth incident file]
-    D --> E[Outlier Filtering<br/>physically impossible values removed]
-    E --> F[Sliding Windows<br/>30 steps, stride 15, normal vessels only]
-    F --> G[Normalization<br/>per-feature z-score]
-    G --> H1[Unsupervised models<br/>Transformer-VAE / LSTM-AE / Isolation Forest]
-    G --> H2[Supervised hybrid<br/>XGBoost on engineered + stacked features]
-    H1 --> I[Per-incident-type<br/>diagnostic evaluation]
-    H2 --> I
-    I --> J[Final model selection]
+```
+Raw monthly CSVs (48 files)
+    → Cleaning (median/mode imputation, column pruning)
+    → Motion feature engineering (5 derived features)
+    → Incident labeling (join against ground-truth incident file)
+    → Outlier filtering (physically impossible values removed)
+    → Sliding-window sequencing (window=30, stride=15, normal vessels only)
+    → Standardization (z-score, mean/std saved for inference)
 ```
 
-**Key design decisions:**
-- Only vessels with **zero** incident history are used to build training sequences — the model learns exclusively from normal behavior.
-- Outlier bounds enforced before sequencing: speed ∈ [0, 60] kt, acceleration ∈ [-5, 5] kt/s, heading change ∈ [0, 180]°, Δt ≥ 1s.
-- Normalization stats (`mean`/`std`) are computed once on the training set and reused for all test-time scoring.
-
----
-
-## 🧩 Feature Engineering
-
-**5 motion features** derived per vessel, in chronological order:
+**Engineered motion features:**
 
 | Feature | Formula | Captures |
 |---|---|---|
-| `delta_time_sec` | `t_i - t_{i-1}` | AIS reporting gaps / dropout |
-| `delta_distance_km` | Haversine(pos_i, pos_{i-1}) | Distance covered between pings |
-| `computed_speed_knots` | `delta_distance_km / (Δt/3600) / 1.852` | Cross-check on reported SOG |
-| `acceleration_knots_per_sec` | `(speed_i - speed_{i-1}) / Δt` | Sudden speed change (e.g. engine failure) |
-| `heading_change_deg` | min angular diff of course | Sharp turns / evasive maneuvers |
+| `delta_time_sec` | `t_i - t_{i-1}` | Reporting gap / possible AIS dropout |
+| `delta_distance_km` | Haversine(pos_i, pos_{i-1}) | Distance travelled |
+| `computed_speed_knots` | distance / time | Position-derived speed check against reported SOG |
+| `acceleration_knots_per_sec` | `(v_i - v_{i-1}) / Δt` | Sudden speed change |
+| `heading_change_deg` | min angular diff | Sharpness of turn |
 
-Combined with raw `lat`, `lon`, `speed_over_ground_knots`, `course_over_ground_deg` → **7 features per timestep**, windowed into sequences of **30 steps** (stride 15) → **3,641,367** training sequences (2017–2019).
+Combined with raw `lat, lon, speed_over_ground, course_over_ground` → **7 features per timestep**, windows of **30 timesteps** (~30–60 min of movement).
 
-The **XGBoost hybrid** goes further, adding 55 total features:
-- Window-level aggregates (mean/std/min/max) over the 7 kinematic channels
-- AIS reporting-gap statistics
-- Static vessel attributes (type, length, width)
-- **Per-vessel baseline z-scores** — each vessel's own historical mean/std, so a window is judged against *that vessel's* normal, not the fleet average
-- **Corridor deviation** — distance from a vessel's own typical lat/lon centroid
-- Transformer-VAE and LSTM-AE **per-channel reconstruction error**, stacked in as learned signal
+Training sequences were built exclusively from vessels with **zero** incident labels, so the unsupervised models only ever learn normal behavior. Resulting training set: **3,641,367 sequences** (2017–2019).
 
----
+## Models
 
-## 🧠 Models
+Four approaches were trained and evaluated on a common held-out labelled test set:
 
-| Model | Type | Notes |
+1. **Isolation Forest** — flattened 30×7 windows, tree-based outlier scoring. Fast, strong baseline.
+2. **Transformer-VAE** — encoder/decoder over the 30-step window, KL-annealed, reconstruction error as anomaly score. Scored deterministically by decoding from `mu` rather than sampling `z` (see [limitations](#known-limitations)).
+3. **LSTM Autoencoder** — recurrent encoder-decoder, reconstruction error as anomaly score.
+4. **XGBoost Hybrid** — supervised classifier over 55 engineered features, including per-vessel baseline z-scores and the deep models' own reconstruction errors as inputs.
+
+## Results
+
+Final, corrected numbers (see [Known Limitations](#known-limitations) for the Transformer non-determinism fix that changed its reported score):
+
+| Model | Overall ROC-AUC | Overall AP |
 |---|---|---|
-| **Isolation Forest** | Unsupervised, tree-based | Flattened 210-dim window vector; tuned via grid search (`n_estimators=300`, `max_samples=256`) |
-| **LSTM Autoencoder** | Unsupervised, deep | 0.48M params, reconstruction-error scoring |
-| **Transformer-VAE** | Unsupervised, deep | 6.4M params (scaled-up version); reconstruction error + KL-regularized latent space |
-| **XGBoost Hybrid** | Supervised, gradient-boosted trees | 55 engineered features including stacked deep-model errors; trained on labeled incident vessels with a **grouped MMSI split** |
+| LSTM Autoencoder | 0.631 | 0.010 |
+| Transformer-VAE | 0.705 | 0.015 |
+| Isolation Forest | 0.764 | 0.018 |
+| **XGBoost Hybrid** | **0.856** | **0.188** |
 
-> ⚠️ A correctness bug was found and fixed mid-project: `TransformerVAE.forward()` sampled `z` via reparameterization even at eval time, making its reconstruction error **non-deterministic**. Fixed by scoring via `decode(mu)` directly instead of the full stochastic forward pass — this changed the reported AUC from 0.691 to a corrected, deterministic 0.705.
+No single model dominates every incident type — XGBoost wins 16/31 categories, Isolation Forest wins 7 (concentrated on Loss of power / Container loss), Transformer wins 8 (Flooding, Grounding, Helper tow), and LSTM-AE never wins outright but still contributes useful signal as an XGBoost input feature.
 
----
+## Key Finding: The Feature Blind Spot
 
-## 📈 Results
+Every unsupervised model plateaued in the same 0.6–0.76 AUC range, with no obvious explanation. Two hypotheses were tested:
 
-### Final Four-Way Comparison
+- **Label noise** — tested via a 50%-overlap label-tightening experiment. Result: only 3.7% of positive windows changed. **Ruled out.**
+- **Model capacity / tuning** — scaling the Transformer-VAE from 1.9M → 6.4M parameters raised AUC from 0.615 → 0.691, showing *some* headroom but not enough to explain the ceiling.
 
-| Model | Overall AUC | Overall AP | Strongest at |
-|---|---|---|---|
-| LSTM-AE | 0.631 | 0.010 | — (never top model on any category) |
-| Transformer-VAE | 0.705 | 0.015 | Flooding, Grounding, Helper tow |
-| Isolation Forest | 0.764 | 0.018 | Loss of power (0.881), Container loss (0.943) |
-| **XGBoost Hybrid** | **0.856** | **0.188** | Majority — 16 of 31 categories |
+The real answer came from computing AUC **per incident type** rather than in aggregate:
 
-**XGBoost Hybrid cross-validation (grouped 5-fold by vessel, 145 incident vessels):**
+- **Well-detected (AUC 0.75–0.91):** Flooding, Grounding, Sinking, Collision, Container loss, Fire — incidents that visibly disrupt motion (stopping, listing, erratic heading), which is exactly what kinematic features are built to catch.
+- **Poorly-detected (AUC 0.4–0.6):** Pollution, Loss of power, Material failure, Route deviation — a vessel can be leaking oil or have a failing generator while still sailing a normal-looking course. These categories account for **~67% of all positive windows**, so they were dragging the aggregate metric down, not a handful of edge cases.
+
+**Conclusion:** the ceiling was a *feature blind spot*, not a model or label problem. No amount of retuning would fix it — the 7 kinematic-only features structurally cannot see these incident types. This reframed the project from "tune the deep model harder" to "engineer features that carry different information."
+
+## XGBoost Hybrid Model
+
+Built directly in response to the diagnostic above. New feature groups added on top of the flattened kinematics:
+
+- Window-level aggregates (mean/std/min/max) over the 7 kinematic channels
+- `delta_time_sec` gap statistics — surfaces AIS reporting dropout
+- Static vessel attributes (`vessel_type_code`, `length_m`, `width_m`)
+- **Per-vessel baseline z-scores** — each vessel's own historical mean/std speed and heading, so incidents that look normal in aggregate but abnormal *for that specific vessel* become visible
+- **Corridor deviation** — distance from a vessel's own typical lat/lon centroid
+- Transformer-VAE and LSTM-AE per-channel reconstruction error, stacked in as features rather than treated as separate standalone detectors
+
+**Methodology note:** a supervised model needs positive examples in training, so a **grouped train/val/test split by MMSI** (101/21/23 vessels) was carved out of the 145 incident-containing vessels. Grouping by vessel is mandatory here — with per-vessel baseline features in the table, a non-grouped split would let the model partially "recognize the vessel" instead of learning the incident pattern, inflating AUC via leakage.
+
+**Validation:** single split gave AUC 0.837. Because 145 vessels is a small population, a grouped 5-fold CV was run as a mandatory stability check (every vessel in exactly one fold's test set):
 
 | Fold | AUC | AP |
 |---|---|---|
@@ -173,137 +129,76 @@ The **XGBoost hybrid** goes further, adding 55 total features:
 | 3 | 0.839 | 0.168 |
 | 4 | 0.842 | 0.238 |
 | 5 | 0.851 | 0.150 |
-| **Mean** | **0.861 ± 0.029** | — |
-| **Pooled (all vessels)** | **0.856** | **0.188** |
 
-No single model wins everywhere: XGBoost wins the majority of categories, Isolation Forest specializes in outlier-shaped anomalies (power loss, container loss), and Transformer-VAE wins on incidents with distinctive motion signatures. LSTM-AE never wins a category outright but its error signal was still the single most important XGBoost feature (`lstm_err_acceleration`).
+Mean AUC **0.861 ± 0.029**, pooled out-of-fold AUC **0.856** (AP 0.188) — consistent with the single split, confirming it wasn't a lucky draw.
 
----
+Top feature by importance: `lstm_err_acceleration` (0.206) — more than double the next feature, validating the decision to stack the deep models' errors as inputs.
 
-## 🔍 Key Findings
+**Tested and rejected:** adding Isolation Forest's raw score as an extra XGBoost feature, hypothesizing the tree model would absorb IF's specialization on Loss-of-power/Container-loss automatically. Result: pooled AUC moved from 0.856 → 0.850, a negative result within noise — no benefit, so the feature was dropped and excluded from the final feature set. Documented as a real, tested-and-rejected hypothesis rather than silently discarded.
 
-<details open>
-<summary><b>1. The AUC ceiling was a feature blind spot, not a model or label problem</b></summary>
+## Known Limitations
 
-Per-incident-type diagnostics split incidents into two clear groups:
-- **Well-detected (AUC 0.75–0.91):** Flooding, Grounding, Sinking, Collision, Container loss, Fire — incidents that visibly disrupt motion.
-- **Poorly-detected (AUC 0.4–0.6):** Pollution, Loss of power, Material failure, Route deviation — a vessel can be leaking oil or have a failing generator while still sailing a normal-looking course.
+Stated plainly, not glossed over:
 
-These weak categories make up **~67% of all positive windows**, so they were the real bottleneck — not rare edge cases. No amount of retuning the Transformer or LSTM architecture would have fixed this; the 7 kinematic features simply couldn't see it.
-</details>
+- **`Pollution, Material failure` stays near-or-below random** across every model (best: Transformer at 0.610). Likely genuinely undetectable from AIS trajectories alone — probably needs sensor telemetry or port authority reports, not more feature engineering. Treated as a dataset/scope limitation.
+- **Evaluation protocols aren't perfectly matched.** The XGBoost Hybrid is evaluated via pooled grouped 5-fold CV; the other three models use a single fixed-split population (positives vs. the full clean-2020 negative pool). Both are leakage-free, but not identical protocols — this is disclosed rather than hidden.
+- **The Transformer-VAE originally scored non-deterministically.** `forward()` sampled `z` via reparameterization even at eval time (`model.eval()` only disables dropout, not this sampling), so the same window scored twice gave different reconstruction errors. This explains why an early report (0.691) differed from a later re-run (0.705) on identical data/checkpoint. Fixed by scoring deterministically from `mu` (`encode(x) → decode(mu)`) instead of the stochastic `forward(x)`.
+- **The deployed model isn't final yet.** The saved `xgboost_hybrid.json` was trained on only 101/145 vessels (the original single-split run used for reporting). A production artifact needs a final fit on all 145 vessels before deployment.
+- **Serving architecture isn't stateless.** Unlike the three unsupervised models, the hybrid's per-vessel baseline features require a stateful vessel-profile store, not just a stateless scorer — this affects MLOps design, not just which model file gets loaded.
 
-<details>
-<summary><b>2. Label noise was tested and ruled out</b></summary>
-
-A "50% overlap" label-tightening experiment (window must be ≥15/30 points inside the incident interval) changed only **3.7%** of positive windows. Since incidents typically last far longer than a single 30-60 minute window, edge-clipping wasn't meaningfully corrupting the labels.
-</details>
-
-<details>
-<summary><b>3. Stacking Isolation Forest into XGBoost didn't help (tested and rejected)</b></summary>
-
-Hypothesis: since Isolation Forest specializes where XGBoost is weaker, adding its score as an XGBoost input feature should let the tree model absorb that specialization. Result: **no measurable improvement** (pooled AUC 0.8564 → 0.8496, mean CV AUC 0.8614 → 0.8594). Documented as a genuine negative result rather than discarded silently.
-</details>
-
-<details>
-<summary><b>4. Aggregate improvement ≠ improvement everywhere</b></summary>
-
-On `Pollution, Material failure`, Transformer-VAE (0.610) clearly beats the XGBoost Hybrid (0.392) — despite the hybrid having direct access to the Transformer's own error as a feature. A stated, disclosed limitation rather than a glossed-over detail.
-</details>
-
----
-
-## 📁 Repository Structure
-
-<details>
-<summary>Click to expand</summary>
+## Project Structure
 
 ```
 maritime_anomaly_detection/
-├── data/
-│   ├── raw/                          # 48 monthly AIS CSVs
-│   ├── hawaii_primary_trajectories_of_interest_2017_2020.csv
-│   └── vessel_names_and_classes.csv
-├── processed/
-│   ├── monthly_parquet/
-│   └── yearly_parquet/
-├── sequences/
-│   ├── X_train_full.npy / X_train_norm.npy / X_val_norm.npy
-│   ├── X_normal_test_norm.npy / X_anomaly_test_norm.npy
-│   ├── y_anomaly_test.npy / incident_type_anomaly_test.npy
-│   └── norm_mean.npy / norm_std.npy
-├── models/
-│   ├── best_model_large.pt           # Transformer-VAE
-│   ├── lstm_ae_best.pt               # LSTM Autoencoder
-│   ├── isolation_forest.pkl
-│   └── xgboost_hybrid.json
+├── data/                    # Raw AIS CSVs + incident metadata
+├── processed/               # Monthly & yearly parquet
+├── sequences/                # Windowed .npy arrays (train/val/test, normal & anomaly)
+├── models/                   # Saved model artifacts (.pth, .pt, .pkl, .json)
+├── notebooks/                 # Exploration, cleaning, sequencing, evaluation
 ├── src/
-│   ├── data_loader.py / preprocess.py / sequence_creator.py
-│   ├── models.py / utils.py
+│   ├── data_loader.py
+│   ├── preprocess.py
+│   ├── sequence_creator.py
+│   ├── models.py
+│   └── utils.py
 ├── maritime/
-│   ├── processing/    # save_incident_types.py
-│   ├── gaur/          # per_incident_type_auc.py (LSTM, Transformer)
-│   ├── model/          # isoforest_per_type_diagnostic.py
-│   └── hybrid/         # build_hybrid_features.py, add_deep_model_scores.py,
-│                        # train_xgboost_hybrid.py, kfold_cv_hybrid.py, add_isoforest_score.py
-├── notebooks/
+│   ├── processing/            # save_incident_types.py, path cleanup
+│   ├── gaur/                  # per_incident_type_auc.py (LSTM, Transformer variants)
+│   ├── hybrid/                 # build_hybrid_features.py, add_deep_model_scores.py,
+│   │                            train_xgboost_hybrid.py, kfold_cv_hybrid.py,
+│   │                            add_isoforest_score.py
+│   └── model/                  # isoforest_per_type_diagnostic.py
 ├── mlflow_runs/
-├── four_way_model_comparison.md      # full 31-category breakdown
+├── four_way_model_comparison.md   # Full 31-category per-type results
 ├── requirements.txt
 └── README.md
 ```
-</details>
 
----
-
-## 🛠 Installation
-
-**Hardware:** GPU with 4GB+ VRAM recommended · 16GB+ RAM (32GB for full dataset) · 20GB+ free storage
-**Software:** Python 3.8+, CUDA 11.x/12.x for GPU training
+## Setup
 
 ```bash
+# GPU-enabled PyTorch (adjust CUDA version as needed)
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
 pip install numpy pandas scikit-learn tqdm matplotlib geopy mlflow xgboost
 ```
 
----
+**Hardware:** NVIDIA GPU with 4GB+ VRAM recommended · 16GB+ RAM (32GB for the full dataset) · 20GB+ free storage.
 
-## 🗺 Roadmap
+## Roadmap
 
-- [x] Data pipeline: cleaning, feature engineering, sequencing, normalization
-- [x] Train Transformer-VAE, LSTM-AE, Isolation Forest
-- [x] Per-incident-type diagnostic analysis
-- [x] XGBoost hybrid model + grouped cross-validation
-- [x] Isoforest-as-feature ablation (negative result, documented)
-- [ ] Final XGBoost fit on all 145 incident vessels (deployment artifact — current model only uses 101/145)
-- [ ] Package best model as a FastAPI microservice
-- [ ] Containerize with Docker
-- [ ] CI/CD via GitHub Actions
-- [ ] Drift monitoring (Evidently AI)
-- [ ] Automated retraining pipeline
-- [ ] **Vessel profile store** — the hybrid model's per-vessel baseline features require stateful serving, not just a stateless scorer; this changes the deployment architecture, not just the loaded model file
+- [ ] Final fit of XGBoost Hybrid on all 145 vessels for deployment
+- [ ] MLOps pipeline: FastAPI microservice → Docker → CI/CD (GitHub Actions) → drift monitoring (Evidently AI) → automated retraining, including the stateful vessel-profile store the hybrid model requires
+- [ ] Investigate why `trans_err_*` features barely register in XGBoost feature importance despite the Transformer outscoring the LSTM standalone (0.705 vs. 0.631) — plausibly correlated with existing kinematic aggregates, not yet confirmed
 
----
-
-## ⚠️ Known Limitations
-
-- **`Pollution, Material failure`** remains near-or-below random across all models (best: Transformer-VAE at 0.610). Likely requires data outside AIS trajectories (sensor telemetry, port authority reports) — treated as a dataset/scope limitation, not something to keep chasing with more feature engineering.
-- The XGBoost Hybrid's evaluation protocol (pooled grouped 5-fold CV) differs structurally from the fixed train/test split used for the other three models. Both are leakage-free, but not perfectly matched — stated explicitly rather than hidden.
-- Only 145 incident-containing vessels exist in total, limiting how much can be learned about rare incident types even with careful grouped CV.
-
----
-
-## 📚 References
+## References
 
 1. [HawaiiCoast_GT Dataset](https://zenodo.org/records/8253611)
 2. [Transformer-VAE for Anomaly Detection](https://arxiv.org/abs/2104.13312)
 3. [LSTM Autoencoder for Time Series Anomaly Detection](https://arxiv.org/abs/1703.10705)
-4. [Isolation Forest for Anomaly Detection](https://ieeexplore.ieee.org/document/4781136)
+4. [Isolation Forest](https://ieeexplore.ieee.org/document/4781136)
 5. [AIS Data — NOAA Marine Cadastre](https://marinecadastre.gov/ais/)
 
----
+## License
 
-<div align="center">
-
-*This project is for educational and research purposes.*
-
-</div>
+Research and educational use.
